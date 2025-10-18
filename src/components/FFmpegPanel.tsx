@@ -53,10 +53,9 @@ type MetaInfo = {
   audioCodec?: string;
 };
 
-type SubtitleResult = {
-  hasEmbedded: boolean;
-  srt?: string;
-};
+type SubtitleResult =
+  | { hasEmbedded: true; srt: string }
+  | { hasEmbedded: false; srt?: undefined };
 
 const useSteps = () => {
   const [progress, setProgress] = useState<StepState[]>(() => steps.map((step) => ({ ...step })));
@@ -332,8 +331,9 @@ export default function FFmpegPanel() {
     if (exitCode !== 0) {
       throw new Error('提取音频失败');
     }
-    const audioData = (await ffmpeg.readFile(outputName)) as Uint8Array;
-    return new Blob([audioData], { type: 'audio/mp4' });
+    const rawAudioData = (await ffmpeg.readFile(outputName)) as Uint8Array;
+    const audioData = new Uint8Array(rawAudioData);
+    return new Blob([audioData.buffer], { type: 'audio/mp4' });
   }, []);
 
   const runPipeline = useCallback(async () => {
@@ -380,7 +380,7 @@ export default function FFmpegPanel() {
       return { hasEmbedded: false } satisfies SubtitleResult;
     });
 
-    if (subtitleResult.hasEmbedded && subtitleResult.srt) {
+    if (subtitleResult.hasEmbedded) {
       setExtractedSrt(subtitleResult.srt);
       logStage('subtitle', '检测到内嵌字幕，已提取。');
       finish('subtitle', { found: 'yes' });
@@ -389,7 +389,7 @@ export default function FFmpegPanel() {
       finish('subtitle', { found: 'no' });
     }
 
-    let currentSrt = subtitleResult.srt ?? '';
+    let currentSrt = subtitleResult.hasEmbedded ? subtitleResult.srt : '';
 
     if (!currentSrt) {
       start('audio');

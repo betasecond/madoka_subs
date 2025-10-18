@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import pRetry from "p-retry";
+import pRetry, { AbortError } from "p-retry";
 
 const SUBMIT_ENDPOINT = "submit";
 const QUERY_ENDPOINT = "query";
@@ -30,13 +30,17 @@ const SUBMIT_HEADERS = {
   "content-type": "application/json",
 };
 
-const withBearer = (token: string) => `Bearer; ${token}`;
+const withBearer = (token: string) => `Bearer ${token}`;
 
 const DEFAULT_OPTIONS = {
   use_itn: "True",
   use_capitalize: "True",
   max_lines: 1,
   words_per_line: 15,
+};
+
+type SignedUrlBucket = CloudflareEnv["AUDIO_BUCKET"] & {
+  createSignedUrl: (options: { key: string; expiration?: number }) => Promise<string>;
 };
 
 export async function POST(request: NextRequest) {
@@ -54,7 +58,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "音频对象不存在" }, { status: 404 });
   }
 
-  const signedUrl = await env.AUDIO_BUCKET.createSignedUrl({
+  const audioBucket = env.AUDIO_BUCKET as SignedUrlBucket;
+  if (typeof audioBucket.createSignedUrl !== "function") {
+    throw new Error("当前 R2 Bucket 不支持生成签名地址");
+  }
+
+  const signedUrl = await audioBucket.createSignedUrl({
     key,
     expiration: 60 * 60, // 1 hour
   });
@@ -62,11 +71,14 @@ export async function POST(request: NextRequest) {
   const submitUrl = new URL(
     `${env.ASR_BASE_URL.replace(/\/$/, "")}/${SUBMIT_ENDPOINT}`
   );
-  submitUrl.search = new URLSearchParams({
+  const submitParams = new URLSearchParams({
     appid: env.ASR_APP_ID,
     language: language ?? "zh-CN",
-    ...DEFAULT_OPTIONS,
-  }).toString();
+  });
+  Object.entries(DEFAULT_OPTIONS).forEach(([key, value]) => {
+    submitParams.set(key, String(value));
+  });
+  submitUrl.search = submitParams.toString();
 
   const submitResponse = await fetch(submitUrl, {
     method: "POST",
@@ -113,7 +125,7 @@ export async function POST(request: NextRequest) {
       });
 
       if (!response.ok) {
-        throw new pRetry.AbortError(
+        throw new AbortError(
           `ASR 查询失败: ${response.status} ${await response.text()}`
         );
       }
@@ -125,7 +137,7 @@ export async function POST(request: NextRequest) {
       }
 
       if (result.status === "FAILED") {
-        throw new pRetry.AbortError(`ASR 任务失败: ${result.message}`);
+        throw new AbortError(`ASR 任务失败: ${result.message}`);
       }
 
       throw new Error(`ASR 未完成: ${result.status}`);

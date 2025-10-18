@@ -14,9 +14,9 @@ const envGetter = ({ request }: { request: Request }) => {
 
 export async function GET(
   request: Request,
-  { params }: { params: { key: string } }
+  context: { params: Promise<{ key: string }> }
 ) {
-  const { key } = params;
+  const { key } = await context.params;
   if (!key) {
     return NextResponse.json(
       { error: "缺少音频标识" },
