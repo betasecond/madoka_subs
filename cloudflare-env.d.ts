@@ -5,6 +5,13 @@ declare namespace Cloudflare {
 	interface Env {
 		NEXTJS_ENV: string;
 		ASSETS: Fetcher;
+		AUDIO_BUCKET: R2Bucket;
+		ASR_APP_ID: string;
+		ASR_ACCESS_TOKEN: string;
+		ASR_BASE_URL: string;
+		LLM_ENDPOINT: string;
+		LLM_API_KEY: string;
+		LLM_MODEL: string;
 	}
 }
 interface CloudflareEnv extends Cloudflare.Env {}

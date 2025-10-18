@@ -15,6 +15,12 @@
 		"binding": "ASSETS",
 		"directory": ".open-next/assets"
 	},
+	"r2_buckets": [
+		{
+			"binding": "AUDIO_BUCKET",
+			"bucket_name": "madoka-audio"
+		}
+	],
 	"observability": {
 		"enabled": true
 	}
