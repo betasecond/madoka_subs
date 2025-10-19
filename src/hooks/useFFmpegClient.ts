@@ -6,6 +6,8 @@ import { getFFmpegBundle } from '@/utils/ffmpegBundle';
 
 const remoteBaseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
 const localFallbackBaseURL = '/ffmpeg';
+// 优先使用用户提供的外部 WASM 源，避免受本地 25MB 限制与静态资源路由影响
+const externalWasmURL = 'https://assets.madokasubs.xyz/ffmpeg-core.wasm';
 
 const formatError = (error: unknown) => {
   if (error instanceof Error) {
@@ -85,15 +87,14 @@ export const useFFmpegClient = () => {
 
     if (!ffmpeg.loaded) {
       emit('开始下载 FFmpeg 核心文件');
-      const loadFromBase = async (baseURL: string) => {
-        emit(`尝试从 ${baseURL} 下载核心文件`);
+      const loadJSFromBase = async (baseURL: string) => {
+        emit(`尝试从 ${baseURL} 下载 JS 与 Worker`);
         const results = await Promise.all([
           toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-          toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
           toBlobURL(`${baseURL}/ffmpeg-core.worker.js`, 'text/javascript'),
         ]);
-        emit(`从 ${baseURL} 下载核心文件成功`);
-        return results as [string, string, string];
+        emit(`从 ${baseURL} 下载 JS 与 Worker 成功`);
+        return results as [string, string];
       };
 
       let coreURL: string;
@@ -101,14 +102,36 @@ export const useFFmpegClient = () => {
       let workerURL: string;
 
       try {
-        [coreURL, wasmURL, workerURL] = await loadFromBase(remoteBaseURL);
+        [coreURL, workerURL] = await loadJSFromBase(remoteBaseURL);
       } catch (remoteError) {
-        emit(`从远端下载失败: ${formatError(remoteError)}，尝试使用本地镜像`);
+        emit(`从远端下载 JS/Worker 失败: ${formatError(remoteError)}，尝试使用本地镜像`);
         try {
-          [coreURL, wasmURL, workerURL] = await loadFromBase(localFallbackBaseURL);
+          [coreURL, workerURL] = await loadJSFromBase(localFallbackBaseURL);
         } catch (localError) {
-          emit(`本地镜像加载失败: ${formatError(localError)}`);
+          emit(`本地镜像 JS/Worker 加载失败: ${formatError(localError)}`);
           throw localError;
+        }
+      }
+
+      // 优先从外部独立域加载 WASM，避免本地 404/HTML 响应导致 "magic word" 错误
+      try {
+        emit(`尝试从外部地址加载 WASM: ${externalWasmURL}`);
+        wasmURL = await toBlobURL(externalWasmURL, 'application/wasm');
+        emit('外部 WASM 加载成功');
+      } catch (externalError) {
+        emit(`外部 WASM 加载失败: ${formatError(externalError)}，回退尝试从远端获取`);
+        try {
+          wasmURL = await toBlobURL(`${remoteBaseURL}/ffmpeg-core.wasm`, 'application/wasm');
+          emit('从远端回退加载 WASM 成功');
+        } catch (remoteWasmError) {
+          emit(`远端 WASM 加载失败: ${formatError(remoteWasmError)}，尝试本地镜像`);
+          try {
+            wasmURL = await toBlobURL(`${localFallbackBaseURL}/ffmpeg-core.wasm`, 'application/wasm');
+            emit('从本地镜像加载 WASM 成功');
+          } catch (localWasmError) {
+            emit(`本地 WASM 加载失败: ${formatError(localWasmError)}`);
+            throw localWasmError;
+          }
         }
       }
 
