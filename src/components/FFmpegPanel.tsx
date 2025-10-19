@@ -197,21 +197,17 @@ export default function FFmpegPanel() {
     },
   });
 
-  const asrMutation = useMutation<{ srt: string }, Error, { key: string; language?: string }>({
+  const asrSubmitMutation = useMutation<{ jobId: string }, Error, { key: string; language?: string }>({
     mutationFn: async (input) => {
-      const response = await fetch('/api/asr', {
+      const response = await fetch('/api/asr/submit', {
         method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-        },
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify(input),
       });
-
       if (!response.ok) {
         throw new Error(await response.text());
       }
-
-      return (await response.json()) as { srt: string };
+      return (await response.json()) as { jobId: string };
     },
   });
 
@@ -444,9 +440,35 @@ export default function FFmpegPanel() {
 
       start('asr');
       const selectedLanguageCode = asrLanguage === 'auto' ? undefined : asrLanguage;
-      const asrResult = await asrMutation.mutateAsync({ key: uploadResult.key, language: selectedLanguageCode });
-      setExtractedSrt(asrResult.srt);
-      currentSrt = asrResult.srt;
+      const { jobId } = await asrSubmitMutation.mutateAsync({ key: uploadResult.key, language: selectedLanguageCode });
+      logStage('asr', `任务已提交，jobId: ${jobId}`);
+      let srtFromAsr = '';
+      const maxAttempts = 30;
+      for (let i = 1; i <= maxAttempts; i++) {
+        await new Promise((r) => setTimeout(r, Math.min(10000, 1000 * i)));
+        const res = await fetch(`/api/asr/${encodeURIComponent(jobId)}`);
+        if (!res.ok) {
+          logStage('asr', `查询失败(${i}/${maxAttempts}): ${res.status}`, 'warn');
+          continue;
+        }
+        const data = (await res.json()) as { status: 'processing' | 'completed' | 'failed'; srt?: string; message?: string };
+        if (data.status === 'processing') {
+          logStage('asr', `处理中(${i}/${maxAttempts})…`);
+          continue;
+        }
+        if (data.status === 'failed') {
+          throw new Error(data.message || 'ASR 任务失败');
+        }
+        if (data.status === 'completed' && data.srt) {
+          srtFromAsr = data.srt;
+          break;
+        }
+      }
+      if (!srtFromAsr) {
+        throw new Error('ASR 轮询超时，未获取到结果');
+      }
+      setExtractedSrt(srtFromAsr);
+      currentSrt = srtFromAsr;
       finish('asr');
     }
 
@@ -476,7 +498,7 @@ export default function FFmpegPanel() {
     extractSubtitles,
     extractAudio,
     uploadMutation,
-    asrMutation,
+    asrSubmitMutation,
     translateMutation,
     ensureFfmpeg,
   ]);
@@ -558,7 +580,7 @@ export default function FFmpegPanel() {
               <button
                 onClick={runPipeline}
                 className="rounded bg-primary px-4 py-2 text-sm font-medium text-black disabled:bg-white/20"
-                disabled={uploadMutation.isPending || asrMutation.isPending || translateMutation.isPending}
+                disabled={uploadMutation.isPending || asrSubmitMutation.isPending || translateMutation.isPending}
               >
                 开始处理
               </button>
