@@ -163,6 +163,24 @@ export default function FFmpegPanel() {
     []
   );
   const [asrLanguage, setAsrLanguage] = useState<string>('auto');
+  const TRANSLATE_LANGUAGE_OPTIONS = useMemo(
+    () => [
+      { label: '中文 zh-CN', value: 'zh-CN' },
+      { label: '英文 en-US', value: 'en-US' },
+      { label: '日语 ja-JP', value: 'ja-JP' },
+      { label: '韩语 ko-KR', value: 'ko-KR' },
+      { label: '法语 fr-FR', value: 'fr-FR' },
+      { label: '西班牙语 es-MX', value: 'es-MX' },
+      { label: '葡萄牙语 pt-BR', value: 'pt-BR' },
+      { label: '德语 de-DE', value: 'de-DE' },
+      { label: '印尼语 id-ID', value: 'id-ID' },
+      { label: '马来语 ms-MY', value: 'ms-MY' },
+      { label: '泰语 th-TH', value: 'th-TH' },
+      { label: '阿拉伯语 ar-SA', value: 'ar-SA' },
+    ],
+    []
+  );
+  const [targetLanguage, setTargetLanguage] = useState<string>('zh-CN');
 
   const uploadMutation = useMutation<{ key: string }, Error, FormData>({
     mutationFn: async (form) => {
@@ -439,7 +457,7 @@ export default function FFmpegPanel() {
     start('translate');
     const translation = await translateMutation.mutateAsync({
       srt: currentSrt,
-      targetLanguage: 'zh-CN',
+      targetLanguage,
       note: translationNote.trim() || undefined,
     });
     setTranslatedSrt(translation.srt);
@@ -512,6 +530,18 @@ export default function FFmpegPanel() {
                   onChange={(e) => setAsrLanguage(e.target.value)}
                 >
                   {ASR_LANGUAGE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-2 text-sm">
+                <label className="text-white/60">目标语言</label>
+                <select
+                  className="rounded border border-white/20 bg-black/40 px-2 py-1"
+                  value={targetLanguage}
+                  onChange={(e) => setTargetLanguage(e.target.value)}
+                >
+                  {TRANSLATE_LANGUAGE_OPTIONS.map((opt) => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
                   ))}
                 </select>
