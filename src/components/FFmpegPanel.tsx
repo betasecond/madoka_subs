@@ -144,6 +144,17 @@ export default function FFmpegPanel() {
   const [extractedSrt, setExtractedSrt] = useState('');
   const [translatedSrt, setTranslatedSrt] = useState('');
   const [fontSize, setFontSize] = useState(16);
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  const isDark = theme === 'dark';
+  const rootClasses = isDark ? 'min-h-screen bg-neutral-950 text-white' : 'min-h-screen bg-white text-neutral-900';
+  const headerClasses = isDark ? 'border-b border-white/10 bg-black/40 backdrop-blur' : 'border-b border-black/10 bg-white/70 backdrop-blur';
+  const cardClasses = isDark ? 'rounded-xl border border-white/10 bg-white/5 p-6' : 'rounded-xl border border-black/10 bg-black/5 p-6';
+  const buttonPrimaryClasses = isDark
+    ? 'rounded bg-emerald-500 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-600 disabled:bg-white/20'
+    : 'rounded bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:bg-black/20';
+  const headerButtonClass = isDark
+    ? 'rounded border border-white/20 px-3 py-1 hover:border-white'
+    : 'rounded border border-black/20 px-3 py-1 hover:border-black';
   const ASR_LANGUAGE_OPTIONS = useMemo(
     () => [
       { label: '自动检测（中/英及常见方言）', value: 'auto' },
@@ -507,17 +518,17 @@ export default function FFmpegPanel() {
   const [translationNote, setTranslationNote] = useState('');
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-white">
-      <header className="border-b border-white/10 bg-black/40 backdrop-blur">
+    <div className={rootClasses}>
+      <header className={headerClasses}>
         <div className="mx-auto flex max-w-5xl flex-col gap-2 px-6 py-6 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-semibold">Madoka Subs</h1>
-            <p className="text-sm text-white/60">浏览器端 FFmpeg + Cloudflare R2 + ASR + 大模型翻译 一站式字幕工作流</p>
+            <p className={isDark ? 'text-sm text-white/60' : 'text-sm text-neutral-600'}>浏览器端 FFmpeg + Cloudflare R2 + ASR + 大模型翻译 一站式字幕工作流</p>
           </div>
-          <div className="flex items-center gap-3 text-sm text-white/70">
+          <div className={isDark ? 'flex items-center gap-3 text-sm text-white/70' : 'flex items-center gap-3 text-sm text-neutral-700'}>
             <span>FFmpeg wasm {isLoaded ? '已加载' : '待加载'}</span>
             <button
-              className="rounded border border-white/20 px-3 py-1 hover:border-white"
+              className={headerButtonClass}
               onClick={() => {
                 reloadFFmpeg().catch((error) => {
                   const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
@@ -527,15 +538,21 @@ export default function FFmpegPanel() {
             >
               重置 FFmpeg
             </button>
+            <button
+              className={headerButtonClass}
+              onClick={() => setTheme(isDark ? 'light' : 'dark')}
+            >
+              {isDark ? '切换日间' : '切换夜间'}
+            </button>
           </div>
         </div>
       </header>
 
       <main className="mx-auto grid max-w-5xl gap-6 px-6 py-10 lg:grid-cols-[2fr_1fr]">
         <section className="space-y-6">
-          <div className="rounded-xl border border-white/10 bg-white/5 p-6">
+          <div className={cardClasses}>
             <h2 className="text-lg font-semibold">1. 上传视频</h2>
-            <p className="mt-1 text-sm text-white/60">选择本地视频文件，系统将自动解析并抽取字幕。</p>
+            <p className={isDark ? 'mt-1 text-sm text-white/60' : 'mt-1 text-sm text-neutral-600'}>选择本地视频文件，系统将自动解析并抽取字幕。</p>
             <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-center">
               <input
                 ref={videoInputRef}
@@ -579,7 +596,7 @@ export default function FFmpegPanel() {
               </div>
               <button
                 onClick={runPipeline}
-                className="rounded bg-primary px-4 py-2 text-sm font-medium text-black disabled:bg-white/20"
+                className={buttonPrimaryClasses}
                 disabled={uploadMutation.isPending || asrSubmitMutation.isPending || translateMutation.isPending}
               >
                 开始处理
@@ -599,7 +616,7 @@ export default function FFmpegPanel() {
             )}
           </div>
 
-          <div className="rounded-xl border border-white/10 bg-white/5 p-6">
+          <div className={cardClasses}>
             <h2 className="text-lg font-semibold">2. 处理进度</h2>
             <div className="mt-4 space-y-3">
               {progress.map((step) => {
@@ -637,7 +654,7 @@ export default function FFmpegPanel() {
             </div>
           </div>
 
-          <div className="rounded-xl border border-white/10 bg-white/5 p-6">
+          <div className={cardClasses}>
             <h2 className="text-lg font-semibold">3. 元信息</h2>
             <dl className="mt-4 grid grid-cols-2 gap-3 text-sm text-white/70">
               <div>
@@ -659,7 +676,7 @@ export default function FFmpegPanel() {
             </dl>
           </div>
 
-          <div className="rounded-xl border border-white/10 bg-white/5 p-6">
+          <div className={cardClasses}>
             <h2 className="text-lg font-semibold">4. 字幕预览</h2>
             <div className="mt-4 flex items-center gap-3 text-sm">
               <label className="text-white/60">字号</label>
@@ -729,8 +746,8 @@ export default function FFmpegPanel() {
             </div>
           </div>
 
-          <div className="rounded-xl border border-white/10 bg-white/5 p-6 text-sm text-white/70">
-            <h2 className="text-lg font-semibold text-white">使用说明</h2>
+          <div className={cardClasses + (isDark ? ' text-sm text-white/70' : ' text-sm text-neutral-700')}>
+            <h2 className={isDark ? 'text-lg font-semibold text-white' : 'text-lg font-semibold text-neutral-900'}>使用说明</h2>
             <ul className="mt-3 space-y-2 list-disc pl-4">
               <li>确保浏览器支持 WebAssembly，并允许使用本地文件。</li>
               <li>FFmpeg 初始化可能需要数秒，日志面板会实时更新。</li>
