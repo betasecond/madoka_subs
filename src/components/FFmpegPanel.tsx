@@ -197,7 +197,7 @@ export default function FFmpegPanel() {
     },
   });
 
-  const translateMutation = useMutation<{ srt: string }, Error, { srt: string; targetLanguage?: string }>({
+  const translateMutation = useMutation<{ srt: string }, Error, { srt: string; targetLanguage?: string; note?: string }>({
     mutationFn: async (input) => {
       const response = await fetch('/api/translate', {
         method: 'POST',
@@ -440,6 +440,7 @@ export default function FFmpegPanel() {
     const translation = await translateMutation.mutateAsync({
       srt: currentSrt,
       targetLanguage: 'zh-CN',
+      note: translationNote.trim() || undefined,
     });
     setTranslatedSrt(translation.srt);
     finish('translate');
@@ -463,6 +464,7 @@ export default function FFmpegPanel() {
   ]);
 
   const previewSrt = useMemo(() => translatedSrt || extractedSrt, [translatedSrt, extractedSrt]);
+  const [translationNote, setTranslationNote] = useState('');
 
   return (
     <div className="min-h-screen bg-neutral-950 text-white">
@@ -513,6 +515,15 @@ export default function FFmpegPanel() {
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
                   ))}
                 </select>
+              </div>
+              <div className="flex items-center gap-2 text-sm">
+                <label className="text-white/60">翻译备注</label>
+                <input
+                  className="rounded border border-white/20 bg-black/40 px-2 py-1"
+                  placeholder="可选：人物/场景背景、术语偏好等"
+                  value={translationNote}
+                  onChange={(e) => setTranslationNote(e.target.value)}
+                />
               </div>
               <button
                 onClick={runPipeline}
