@@ -6,34 +6,83 @@ const QUERY_ENDPOINT = "query";
 
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
-type SubmitResponse = {
-  id: string;
-  message: string;
+type V3QueryResponse = {
+  audio_info?: { duration?: number };
+  result?: {
+    text?: string;
+    utterances?: Array<{
+      text: string;
+      start_time?: number;
+      end_time?: number;
+      words?: Array<{
+        text: string;
+        start_time: number;
+        end_time: number;
+      }>;
+    }>;
+  };
 };
 
-type QueryResponse = {
-  id: string;
-  status: string;
-  message: string;
-  data?: { srt: string };
-};
-
-const SUBMIT_HEADERS = {
-  "content-type": "application/json",
-};
-
-const withBearer = (token: string) => `Bearer; ${token}`;
-
-const DEFAULT_OPTIONS = {
-  use_itn: "True",
-  use_capitalize: "True",
-  max_lines: 1,
-  words_per_line: 15,
-};
+const CONTENT_TYPE_JSON = { "content-type": "application/json" } as const;
 
 type SignedUrlBucket = CloudflareEnv["AUDIO_BUCKET"] & {
   createSignedUrl: (options: { key: string; expiration?: number }) => Promise<string>;
 };
+
+function buildV3Headers(env: CloudflareEnv, requestId: string): Record<string, string> {
+  return {
+    "content-type": "application/json",
+    "X-Api-App-Key": env.ASR_APP_ID,
+    "X-Api-Access-Key": env.ASR_ACCESS_TOKEN,
+    "X-Api-Resource-Id": env.ASR_RESOURCE_ID,
+    "X-Api-Request-Id": requestId,
+    "X-Api-Sequence": "-1",
+  };
+}
+
+function readStatusCode(headers: Headers): number {
+  const raw = headers.get("X-Api-Status-Code") ?? headers.get("x-api-status-code") ?? "";
+  const code = Number(raw);
+  return Number.isFinite(code) ? code : 0;
+}
+
+function msToSrtTime(ms: number): string {
+  const totalMs = Math.max(0, Math.floor(ms));
+  const hours = Math.floor(totalMs / 3600000)
+    .toString()
+    .padStart(2, "0");
+  const minutes = Math.floor((totalMs % 3600000) / 60000)
+    .toString()
+    .padStart(2, "0");
+  const seconds = Math.floor((totalMs % 60000) / 1000)
+    .toString()
+    .padStart(2, "0");
+  const millis = (totalMs % 1000).toString().padStart(3, "0");
+  return `${hours}:${minutes}:${seconds},${millis}`;
+}
+
+function utterancesToSrt(utterances: NonNullable<NonNullable<V3QueryResponse["result"]>["utterances"]>): string {
+  const lines: string[] = [];
+  utterances.forEach((u, idx) => {
+    let start = u.start_time;
+    let end = u.end_time;
+    if ((start == null || end == null) && u.words && u.words.length > 0) {
+      const first = u.words[0];
+      const last = u.words[u.words.length - 1];
+      start = start ?? first.start_time;
+      end = end ?? last.end_time;
+    }
+    // Fallback if still missing
+    start = start ?? 0;
+    end = end ?? start + 2000;
+
+    lines.push(String(idx + 1));
+    lines.push(`${msToSrtTime(start)} --> ${msToSrtTime(end)}`);
+    lines.push(u.text || "");
+    lines.push("");
+  });
+  return lines.join("\n");
+}
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -45,8 +94,15 @@ export async function POST(request: NextRequest) {
 
   const { env } = getCloudflareContext();
 
+  if (!env.ASR_APP_ID || !env.ASR_ACCESS_TOKEN || !env.ASR_RESOURCE_ID) {
+    return NextResponse.json(
+      { error: "ASR 环境变量缺失", detail: "需要 ASR_APP_ID / ASR_ACCESS_TOKEN / ASR_RESOURCE_ID" },
+      { status: 500 }
+    );
+  }
+
   const audioObject = await env.AUDIO_BUCKET.get(key);
-  if (!audioObject || !audioObject.httpMetadata?.contentType || !audioObject.body) {
+  if (!audioObject || !audioObject.body) {
     return NextResponse.json({ error: "音频对象不存在" }, { status: 404 });
   }
 
@@ -55,35 +111,54 @@ export async function POST(request: NextRequest) {
   if (typeof audioBucket.createSignedUrl === "function") {
     audioUrl = await audioBucket.createSignedUrl({
       key,
-      expiration: 60 * 60, // 1 hour
+      expiration: 60 * 60,
     });
   } else {
-    // 回退到公开可访问的音频地址（由本应用代理到 R2）
     const origin = new URL(request.url).origin;
     audioUrl = new URL(`/api/audio/${encodeURIComponent(key)}`, origin).toString();
   }
 
-  const submitUrl = new URL(
-    `${env.ASR_BASE_URL.replace(/\/$/, "")}/${SUBMIT_ENDPOINT}`
-  );
-  const submitParams = new URLSearchParams({
-    appid: env.ASR_APP_ID,
-    language: language ?? "zh-CN",
-  });
-  Object.entries(DEFAULT_OPTIONS).forEach(([key, value]) => {
-    submitParams.set(key, String(value));
-  });
-  submitUrl.search = submitParams.toString();
+  // Infer audio format
+  const contentType = (audioObject as any).httpMetadata?.contentType as string | undefined;
+  const inferAudioFormat = (keyName: string, ct?: string): string => {
+    const lowerCt = (ct || "").toLowerCase();
+    if (lowerCt.includes("wav")) return "wav";
+    if (lowerCt.includes("mp3")) return "mp3";
+    if (lowerCt.includes("ogg")) return "ogg";
+    const lowerKey = keyName.toLowerCase();
+    if (lowerKey.endsWith(".wav")) return "wav";
+    if (lowerKey.endsWith(".mp3")) return "mp3";
+    if (lowerKey.endsWith(".ogg") || lowerKey.endsWith(".oga")) return "ogg";
+    return "wav";
+  };
+  const audioFormat = inferAudioFormat(key, contentType);
+
+  // Build headers and request id
+  const requestId = (globalThis as any).crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+  const submitUrl = `${env.ASR_BASE_URL.replace(/\/$/, "")}/${SUBMIT_ENDPOINT}`;
+  const submitHeaders = buildV3Headers(env as unknown as CloudflareEnv, requestId);
+  const submitPayload = {
+    user: {
+      uid: "web_client",
+    },
+    audio: {
+      url: audioUrl,
+      format: audioFormat,
+      ...(language ? { language } : {}),
+    },
+    request: {
+      model_name: "bigmodel",
+      ...(env.ASR_MODEL_VERSION ? { model_version: env.ASR_MODEL_VERSION } : {}),
+      enable_itn: true,
+      enable_punc: true,
+      show_utterances: true,
+    },
+  };
 
   const submitResponse = await fetch(submitUrl, {
     method: "POST",
-    headers: {
-      ...SUBMIT_HEADERS,
-      Authorization: withBearer(env.ASR_ACCESS_TOKEN),
-    },
-    body: JSON.stringify({
-      url: audioUrl,
-    }),
+    headers: submitHeaders,
+    body: JSON.stringify(submitPayload),
   });
 
   if (!submitResponse.ok) {
@@ -94,29 +169,32 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const submitResult = (await submitResponse.json()) as SubmitResponse;
-
-  if (submitResult.message !== "Success") {
+  const submitStatus = readStatusCode(submitResponse.headers);
+  if (submitStatus !== 20000000) {
     return NextResponse.json(
-      { error: "ASR 返回异常", detail: submitResult },
-      { status: 500 }
+      {
+        error: "ASR 提交失败",
+        detail: {
+          statusCode: submitStatus,
+          message:
+            submitResponse.headers.get("X-Api-Message") || submitResponse.headers.get("x-api-message"),
+          body: await submitResponse.text(),
+        },
+      },
+      { status: 400 }
     );
   }
 
-  const jobId = submitResult.id;
+  const jobId = requestId;
 
+  // Query loop per v3 API
   const queryUrl = `${env.ASR_BASE_URL.replace(/\/$/, "")}/${QUERY_ENDPOINT}`;
-  const params = new URLSearchParams({
-    appid: env.ASR_APP_ID,
-    id: jobId,
-  });
-
   const data = await pRetry(
     async () => {
-      const response = await fetch(`${queryUrl}?${params.toString()}`, {
-        headers: {
-          Authorization: withBearer(env.ASR_ACCESS_TOKEN),
-        },
+      const response = await fetch(queryUrl, {
+        method: "POST",
+        headers: buildV3Headers(env as unknown as CloudflareEnv, jobId),
+        body: JSON.stringify({}),
       });
 
       if (!response.ok) {
@@ -125,17 +203,27 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const result = (await response.json()) as QueryResponse;
-
-      if (result.status === "SUCCESS" && result.data?.srt) {
-        return result.data.srt;
+      const status = readStatusCode(response.headers);
+      if (status === 20000000) {
+        const result = (await response.json()) as V3QueryResponse;
+        const utt = result.result?.utterances ?? [];
+        if (utt.length > 0) {
+          return utterancesToSrt(utt);
+        }
+        const text = result.result?.text || "";
+        return [`1`, `${msToSrtTime(0)} --> ${msToSrtTime(2000)}`, text, ""].join("\n");
       }
 
-      if (result.status === "FAILED") {
-        throw new AbortError(`ASR 任务失败: ${result.message}`);
+      if (status === 20000001 || status === 20000002) {
+        // processing / queued
+        throw new Error(`ASR 未完成: ${status}`);
       }
 
-      throw new Error(`ASR 未完成: ${result.status}`);
+      throw new AbortError(
+        `ASR 任务失败: ${status} ${
+          response.headers.get("X-Api-Message") || response.headers.get("x-api-message") || ""
+        }`
+      );
     },
     {
       retries: 10,

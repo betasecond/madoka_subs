@@ -9,6 +9,8 @@ declare namespace Cloudflare {
 		ASR_APP_ID: string;
 		ASR_ACCESS_TOKEN: string;
 		ASR_BASE_URL: string;
+		ASR_RESOURCE_ID: string;
+		ASR_MODEL_VERSION: string;
 		LLM_ENDPOINT: string;
 		LLM_API_KEY: string;
 		LLM_MODEL: string;

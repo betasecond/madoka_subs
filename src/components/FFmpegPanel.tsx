@@ -144,6 +144,25 @@ export default function FFmpegPanel() {
   const [extractedSrt, setExtractedSrt] = useState('');
   const [translatedSrt, setTranslatedSrt] = useState('');
   const [fontSize, setFontSize] = useState(16);
+  const ASR_LANGUAGE_OPTIONS = useMemo(
+    () => [
+      { label: '自动检测（中/英及常见方言）', value: 'auto' },
+      { label: '英语 en-US', value: 'en-US' },
+      { label: '日语 ja-JP', value: 'ja-JP' },
+      { label: '印尼语 id-ID', value: 'id-ID' },
+      { label: '西班牙语 es-MX', value: 'es-MX' },
+      { label: '葡萄牙语 pt-BR', value: 'pt-BR' },
+      { label: '德语 de-DE', value: 'de-DE' },
+      { label: '法语 fr-FR', value: 'fr-FR' },
+      { label: '韩语 ko-KR', value: 'ko-KR' },
+      { label: '菲律宾语 fil-PH', value: 'fil-PH' },
+      { label: '马来语 ms-MY', value: 'ms-MY' },
+      { label: '泰语 th-TH', value: 'th-TH' },
+      { label: '阿拉伯语 ar-SA', value: 'ar-SA' },
+    ],
+    []
+  );
+  const [asrLanguage, setAsrLanguage] = useState<string>('auto');
 
   const uploadMutation = useMutation<{ key: string }, Error, FormData>({
     mutationFn: async (form) => {
@@ -406,7 +425,8 @@ export default function FFmpegPanel() {
       finish('upload', { key: uploadResult.key });
 
       start('asr');
-      const asrResult = await asrMutation.mutateAsync({ key: uploadResult.key });
+      const selectedLanguageCode = asrLanguage === 'auto' ? undefined : asrLanguage;
+      const asrResult = await asrMutation.mutateAsync({ key: uploadResult.key, language: selectedLanguageCode });
       setExtractedSrt(asrResult.srt);
       currentSrt = asrResult.srt;
       finish('asr');
@@ -482,6 +502,18 @@ export default function FFmpegPanel() {
                 onChange={(event) => handleVideoSelect(event.target.files)}
                 className="text-sm"
               />
+              <div className="flex items-center gap-2 text-sm">
+                <label className="text-white/60">识别语言</label>
+                <select
+                  className="rounded border border-white/20 bg-black/40 px-2 py-1"
+                  value={asrLanguage}
+                  onChange={(e) => setAsrLanguage(e.target.value)}
+                >
+                  {ASR_LANGUAGE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
               <button
                 onClick={runPipeline}
                 className="rounded bg-primary px-4 py-2 text-sm font-medium text-black disabled:bg-white/20"

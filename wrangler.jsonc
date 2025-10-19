@@ -12,8 +12,10 @@
     "directory": ".open-next/assets"
   },
   "vars": {
-    "ASR_BASE_URL": "https://openspeech.bytedance.com/api/v1/auc",
+    "ASR_BASE_URL": "https://openspeech.bytedance.com/api/v3/auc/bigmodel",
     "ASR_APP_ID": "2371198889",
+    "ASR_RESOURCE_ID": "volc.bigasr.auc",
+    "ASR_MODEL_VERSION": "400",
     "LLM_ENDPOINT": "https://ark.cn-beijing.volces.com",
     "LLM_MODEL": "ep-20251018110429-77wgf"
   },
