@@ -126,6 +126,7 @@ export async function POST(request: NextRequest) {
   if (entries.length === 0) {
     return NextResponse.json({ error: "SRT 解析失败或为空" }, { status: 400 });
   }
+  console.log(`[translate] Parsed ${entries.length} SRT entries.`);
 
   const endpoint = resolveCompletionsEndpoint(env.LLM_ENDPOINT);
   const model = env.LLM_MODEL;
@@ -142,6 +143,7 @@ export async function POST(request: NextRequest) {
       const myIndex = cursor++;
       if (myIndex >= entries.length) break;
       const entry = entries[myIndex];
+      console.log(`[translate] Processing entry: ${myIndex}`);
       const translatedText = await translateChunk({
         endpoint,
         apiKey,
@@ -150,6 +152,7 @@ export async function POST(request: NextRequest) {
         targetLanguage,
         note: body.note,
       }).catch((e: unknown) => {
+        console.error(`[translate] Error translating entry ${myIndex}: `, e);
         // 出错时回退原文，避免整体失败
         return entry.text;
       });
