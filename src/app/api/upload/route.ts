@@ -1,40 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-
-const getEnv = ({ request }: { request: NextRequest }) => {
-  const logs: string[] = [];
-  
-  // Check for bindings on the request object (standard for Cloudflare Pages)
-  const cfEnv = (request as unknown as { env?: CloudflareEnv }).env;
-  if (cfEnv) {
-    logs.push("Found `env` on request object.");
-    console.log("getEnv logs:", logs.join(" "));
-    return cfEnv;
-  }
-  logs.push("`env` not found on request object.");
-
-  // Check for bindings on the global scope (fallback, used by `wrangler dev`)
-  const fallback = (globalThis as unknown as { __env__?: CloudflareEnv }).__env__;
-  if (fallback) {
-    logs.push("Found `__env__` on globalThis.");
-    console.log("getEnv logs:", logs.join(" "));
-    return fallback;
-  }
-  logs.push("`__env__` not found on globalThis.");
-  
-  const errorMessage = `Cloudflare 环境变量未注入. Log: ${logs.join(" ")}`;
-  console.error(errorMessage);
-  throw new Error(errorMessage);
-};
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024; // 2GB
 
 export async function POST(request: NextRequest) {
   try {
-    const env = getEnv({ request });
+    const { env } = getCloudflareContext();
 
-    // Check if the specific binding exists
     if (!env.AUDIO_BUCKET) {
-      throw new Error("R2 binding 'AUDIO_BUCKET' not found in environment.");
+      // This check is almost redundant now but good for safety.
+      throw new Error("R2 binding 'AUDIO_BUCKET' not found in Cloudflare context.");
     }
 
     const body = await request.formData();
@@ -67,9 +42,8 @@ export async function POST(request: NextRequest) {
     console.error("Error in /api/upload:", error);
     return NextResponse.json(
       {
-        error: "An unexpected error occurred.",
+        error: "An unexpected error occurred during upload.",
         errorMessage: error.message,
-        errorStack: error.stack,
       },
       { status: 500 }
     );
