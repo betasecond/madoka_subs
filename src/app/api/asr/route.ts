@@ -114,8 +114,12 @@ export async function POST(request: NextRequest) {
       expiration: 60 * 60,
     });
   } else {
-    const origin = new URL(request.url).origin;
-    audioUrl = new URL(`/api/audio/${encodeURIComponent(key)}`, origin).toString();
+    // 当没有 R2 签名 URL 能力时，使用公开可访问域名拼接本服务的代理 URL，确保对方可拉取
+    const originOverride = (env as any).PUBLIC_ORIGIN as string | undefined;
+    const origin = originOverride && /^https?:\/\//i.test(originOverride)
+      ? originOverride.replace(/\/$/, "")
+      : new URL(request.url).origin;
+    audioUrl = `${origin}/api/audio/${encodeURIComponent(key)}`;
   }
 
   // Infer audio format
@@ -171,6 +175,7 @@ export async function POST(request: NextRequest) {
 
   const submitStatus = readStatusCode(submitResponse.headers);
   if (submitStatus !== 20000000) {
+    const submitErrText = await submitResponse.text().catch(() => "");
     return NextResponse.json(
       {
         error: "ASR 提交失败",
@@ -178,12 +183,14 @@ export async function POST(request: NextRequest) {
           statusCode: submitStatus,
           message:
             submitResponse.headers.get("X-Api-Message") || submitResponse.headers.get("x-api-message"),
-          body: await submitResponse.text(),
+          body: submitErrText,
         },
       },
       { status: 400 }
     );
   }
+  // 成功提交也要消费/取消响应体，避免 Cloudflare stalled 警告
+  try { await submitResponse.body?.cancel?.(); } catch {}
 
   const jobId = requestId;
 
@@ -215,15 +222,16 @@ export async function POST(request: NextRequest) {
       }
 
       if (status === 20000001 || status === 20000002) {
-        // processing / queued
+        // processing / queued：取消响应体避免堆积
+        try { await response.body?.cancel?.(); } catch {}
         throw new Error(`ASR 未完成: ${status}`);
       }
 
-      throw new AbortError(
-        `ASR 任务失败: ${status} ${
-          response.headers.get("X-Api-Message") || response.headers.get("x-api-message") || ""
-        }`
-      );
+      const msg = response.headers.get("X-Api-Message") || response.headers.get("x-api-message") || "";
+      const errBody = await response.text().catch(() => "");
+      // 失败：也消费响应体
+      try { await response.body?.cancel?.(); } catch {}
+      throw new AbortError(`ASR 任务失败: ${status} ${msg} ${errBody ? `| ${errBody}` : ""}`);
     },
     {
       retries: 10,
