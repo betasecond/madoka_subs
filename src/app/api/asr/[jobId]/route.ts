@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 function buildV3Headers(env: any, requestId: string): Record<string, string> {
@@ -61,8 +61,8 @@ type V3QueryResponse = {
   result?: { text?: string; utterances?: V3Utterance[] };
 };
 
-export async function GET(_request: NextRequest, { params }: { params: { jobId: string } }) {
-  const jobId = params.jobId;
+export async function GET(request: Request, context: { params: Promise<{ jobId: string }> }) {
+  const { jobId } = await context.params;
   if (!jobId) {
     return NextResponse.json({ error: "缺少 jobId" }, { status: 400 });
   }
