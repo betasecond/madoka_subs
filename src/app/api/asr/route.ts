@@ -113,14 +113,37 @@ export async function POST(request: NextRequest) {
   }
 
   const audioBucket = env.AUDIO_BUCKET as SignedUrlBucket;
-  let audioUrl: string;
+  let audioUrl: string | undefined;
+  // 1) R2 内建签名（优先）
   if (typeof audioBucket.createSignedUrl === "function") {
-    audioUrl = await audioBucket.createSignedUrl({
-      key,
-      expiration: 60 * 60,
-    });
-  } else {
-    // 当没有 R2 签名 URL 能力时，使用公开可访问域名拼接本服务的代理 URL，确保对方可拉取
+    audioUrl = await audioBucket.createSignedUrl({ key, expiration: 60 * 60 });
+  }
+  // 2) R2 S3 预签名
+  if (!audioUrl && (env as any).R2_S3_ACCOUNT_ID && (env as any).R2_S3_BUCKET && (env as any).R2_S3_ACCESS_KEY_ID && (env as any).R2_S3_SECRET_ACCESS_KEY) {
+    try {
+      const { AwsClient } = await import('aws4fetch');
+      const client = new AwsClient({
+        accessKeyId: (env as any).R2_S3_ACCESS_KEY_ID as string,
+        secretAccessKey: (env as any).R2_S3_SECRET_ACCESS_KEY as string,
+        service: 's3',
+        region: 'auto',
+      });
+      const endpoint = `https://${(env as any).R2_S3_BUCKET}.${(env as any).R2_S3_ACCOUNT_ID}.r2.cloudflarestorage.com/${encodeURIComponent(key)}`;
+      const url = new URL(endpoint);
+      url.searchParams.set('X-Amz-Expires', String(3600));
+      const signed = await client.sign(new Request(url, { method: 'GET' }), { aws: { signQuery: true } });
+      audioUrl = signed.url;
+    } catch {
+      // ignore and continue to next fallback
+    }
+  }
+  // 3) 公共基址直链
+  if (!audioUrl && (env as any).AUDIO_PUBLIC_BASE && /^https?:\/\//i.test((env as any).AUDIO_PUBLIC_BASE as string)) {
+    const base = ((env as any).AUDIO_PUBLIC_BASE as string).replace(/\/$/, "");
+    audioUrl = `${base}/${encodeURIComponent(key)}`;
+  }
+  // 4) 本服务代理
+  if (!audioUrl) {
     const originOverride = (env as any).PUBLIC_ORIGIN as string | undefined;
     const origin = originOverride && /^https?:\/\//i.test(originOverride)
       ? originOverride.replace(/\/$/, "")
@@ -139,6 +162,7 @@ export async function POST(request: NextRequest) {
     if (lowerKey.endsWith(".wav")) return "wav";
     if (lowerKey.endsWith(".mp3")) return "mp3";
     if (lowerKey.endsWith(".ogg") || lowerKey.endsWith(".oga")) return "ogg";
+    if (lowerKey.endsWith(".m4a") || lowerKey.endsWith(".mp4")) return "mp3";
     return "wav";
   };
   const audioFormat = inferAudioFormat(key, contentType);

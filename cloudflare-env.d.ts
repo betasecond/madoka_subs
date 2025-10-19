@@ -12,6 +12,11 @@ declare namespace Cloudflare {
 		ASR_RESOURCE_ID: string;
 		ASR_MODEL_VERSION: string;
 		PUBLIC_ORIGIN?: string;
+		AUDIO_PUBLIC_BASE?: string;
+		R2_S3_ACCOUNT_ID?: string;
+		R2_S3_BUCKET?: string;
+		R2_S3_ACCESS_KEY_ID?: string;
+		R2_S3_SECRET_ACCESS_KEY?: string;
 		LLM_ENDPOINT: string;
 		LLM_API_KEY: string;
 		LLM_MODEL: string;
