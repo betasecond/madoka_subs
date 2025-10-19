@@ -22,7 +22,7 @@ const SUBMIT_HEADERS = {
   "content-type": "application/json",
 };
 
-const withBearer = (token: string) => `Bearer ${token}`;
+const withBearer = (token: string) => `Bearer; ${token}`;
 
 const DEFAULT_OPTIONS = {
   use_itn: "True",
