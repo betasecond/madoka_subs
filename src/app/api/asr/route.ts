@@ -4,15 +4,7 @@ import pRetry, { AbortError } from "p-retry";
 const SUBMIT_ENDPOINT = "submit";
 const QUERY_ENDPOINT = "query";
 
-const getEnv = ({ request }: { request: Request }) => {
-  const cfEnv = (request as unknown as { env?: CloudflareEnv }).env;
-  if (cfEnv) return cfEnv;
-  const fallback = (globalThis as unknown as { __env__?: CloudflareEnv }).__env__;
-  if (!fallback) {
-    throw new Error("Cloudflare 环境变量未注入");
-  }
-  return fallback;
-};
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 type SubmitResponse = {
   id: string;
@@ -51,7 +43,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "缺少音频标识" }, { status: 400 });
   }
 
-  const env = getEnv({ request });
+  const { env } = getCloudflareContext();
 
   const audioObject = await env.AUDIO_BUCKET.get(key);
   if (!audioObject || !audioObject.httpMetadata?.contentType || !audioObject.body) {

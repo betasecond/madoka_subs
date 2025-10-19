@@ -1,14 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const getEnv = ({ request }: { request: Request }) => {
-  const cfEnv = (request as unknown as { env?: CloudflareEnv }).env;
-  if (cfEnv) return cfEnv;
-  const fallback = (globalThis as unknown as { __env__?: CloudflareEnv }).__env__;
-  if (!fallback) {
-    throw new Error("Cloudflare 环境变量未注入");
-  }
-  return fallback;
-};
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 type TranslateMessage = {
   role: "user";
@@ -53,7 +45,7 @@ const buildPrompt = ({
 ${original}`;
 
 export async function POST(request: NextRequest) {
-  const env = getEnv({ request });
+  const { env } = getCloudflareContext();
 
   const body = (await request.json()) as {
     srt?: string;
