@@ -46,6 +46,12 @@ function readStatusCode(headers: Headers): number {
   return Number.isFinite(code) ? code : 0;
 }
 
+function maskSecret(secret: string): string {
+  if (!secret) return "";
+  if (secret.length <= 6) return "***";
+  return `${secret.slice(0, 3)}***${secret.slice(-3)}`;
+}
+
 function msToSrtTime(ms: number): string {
   const totalMs = Math.max(0, Math.floor(ms));
   const hours = Math.floor(totalMs / 3600000)
@@ -137,8 +143,17 @@ export async function POST(request: NextRequest) {
   };
   const audioFormat = inferAudioFormat(key, contentType);
 
+  const debugInfo: any = {
+    requestId: undefined as string | undefined,
+    audioUrl,
+    audioFormat,
+    submit: undefined as any,
+    polls: [] as any[],
+  };
+
   // Build headers and request id
   const requestId = (globalThis as any).crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+  debugInfo.requestId = requestId;
   const submitUrl = `${env.ASR_BASE_URL.replace(/\/$/, "")}/${SUBMIT_ENDPOINT}`;
   const submitHeaders = buildV3Headers(env as unknown as CloudflareEnv, requestId);
   const submitPayload = {
@@ -159,6 +174,23 @@ export async function POST(request: NextRequest) {
     },
   };
 
+  // Fill debug submit info (sanitized)
+  debugInfo.submit = {
+    url: submitUrl,
+    headers: {
+      "X-Api-App-Key": env.ASR_APP_ID,
+      "X-Api-Access-Key": maskSecret(env.ASR_ACCESS_TOKEN),
+      "X-Api-Resource-Id": env.ASR_RESOURCE_ID,
+      "X-Api-Request-Id": requestId,
+      "X-Api-Sequence": "-1",
+    },
+    payload: {
+      user: submitPayload.user,
+      audio: { url: submitPayload.audio.url, format: submitPayload.audio.format, language: (submitPayload as any).audio?.language },
+      request: submitPayload.request,
+    },
+  };
+
   const submitResponse = await fetch(submitUrl, {
     method: "POST",
     headers: submitHeaders,
@@ -174,6 +206,11 @@ export async function POST(request: NextRequest) {
   }
 
   const submitStatus = readStatusCode(submitResponse.headers);
+  debugInfo.submit.response = {
+    httpStatus: submitResponse.status,
+    apiStatus: submitStatus,
+    apiMessage: submitResponse.headers.get("X-Api-Message") || submitResponse.headers.get("x-api-message"),
+  };
   if (submitStatus !== 20000000) {
     const submitErrText = await submitResponse.text().catch(() => "");
     return NextResponse.json(
@@ -185,6 +222,7 @@ export async function POST(request: NextRequest) {
             submitResponse.headers.get("X-Api-Message") || submitResponse.headers.get("x-api-message"),
           body: submitErrText,
         },
+        debug: debugInfo,
       },
       { status: 400 }
     );
@@ -196,8 +234,10 @@ export async function POST(request: NextRequest) {
 
   // Query loop per v3 API
   const queryUrl = `${env.ASR_BASE_URL.replace(/\/$/, "")}/${QUERY_ENDPOINT}`;
+  let attempt = 0;
   const data = await pRetry(
     async () => {
+      attempt += 1;
       const response = await fetch(queryUrl, {
         method: "POST",
         headers: buildV3Headers(env as unknown as CloudflareEnv, jobId),
@@ -211,6 +251,12 @@ export async function POST(request: NextRequest) {
       }
 
       const status = readStatusCode(response.headers);
+      debugInfo.polls.push({
+        attempt,
+        httpStatus: response.status,
+        apiStatus: status,
+        apiMessage: response.headers.get("X-Api-Message") || response.headers.get("x-api-message"),
+      });
       if (status === 20000000) {
         const result = (await response.json()) as V3QueryResponse;
         const utt = result.result?.utterances ?? [];
@@ -241,6 +287,6 @@ export async function POST(request: NextRequest) {
     }
   );
 
-  return NextResponse.json({ srt: data }, { status: 200 });
+  return NextResponse.json({ srt: data, debug: debugInfo }, { status: 200 });
 }
 
