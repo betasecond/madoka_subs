@@ -73,7 +73,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ job
   const apiKey = env.LLM_API_KEY;
   if (!apiKey) return NextResponse.json({ status: "error", message: "缺少 LLM_API_KEY" }, { status: 500 });
 
-  const concurrency = 10;
+  const concurrency = 30;
   let progressed = 0;
   const tasks: Promise<void>[] = [];
   for (let i = 0; i < concurrency && job.cursor < job.entries.length; i++) {

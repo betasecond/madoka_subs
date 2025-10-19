@@ -524,7 +524,7 @@ export default function FFmpegPanel() {
           const current = data.processed;
           const total = Math.max(data.total, 1);
           const remain = Math.max(total - current, 0);
-          const etaSec = Math.min(900, Math.round((1000 + i * 300) / 1000 * Math.ceil(remain / 10)));
+          const etaSec = Math.min(900, Math.round((1000 + i * 300) / 1000 * Math.ceil(remain / 30)));
           setTranslateProgress({ current, total, etaSec });
         }
         logStage('translate', `处理中(${i}/${maxTranslateAttempts})…`);
