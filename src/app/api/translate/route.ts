@@ -134,7 +134,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "缺少 LLM_API_KEY" }, { status: 500 });
   }
 
-  const concurrency = 10;
+  const concurrency = 100;
   const translatedEntries: SrtEntry[] = new Array(entries.length);
   let cursor = 0;
   async function worker() {
