@@ -112,43 +112,32 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "音频对象不存在" }, { status: 404 });
   }
 
-  const audioBucket = env.AUDIO_BUCKET as SignedUrlBucket;
-  let audioUrl: string | undefined;
-  // 1) R2 内建签名（优先）
-  if (typeof audioBucket.createSignedUrl === "function") {
-    audioUrl = await audioBucket.createSignedUrl({ key, expiration: 60 * 60 });
+  // 仅保留：R2 S3 预签名直链（SigV4 GET）
+  if (!(env as any).R2_S3_ACCOUNT_ID || !(env as any).R2_S3_BUCKET || !(env as any).R2_S3_ACCESS_KEY_ID || !(env as any).R2_S3_SECRET_ACCESS_KEY) {
+    return NextResponse.json(
+      { error: "缺少 R2 S3 凭证用于预签名", detail: "请设置 R2_S3_ACCOUNT_ID / R2_S3_BUCKET / R2_S3_ACCESS_KEY_ID / R2_S3_SECRET_ACCESS_KEY" },
+      { status: 500 }
+    );
   }
-  // 2) R2 S3 预签名
-  if (!audioUrl && (env as any).R2_S3_ACCOUNT_ID && (env as any).R2_S3_BUCKET && (env as any).R2_S3_ACCESS_KEY_ID && (env as any).R2_S3_SECRET_ACCESS_KEY) {
-    try {
-      const { AwsClient } = await import('aws4fetch');
-      const client = new AwsClient({
-        accessKeyId: (env as any).R2_S3_ACCESS_KEY_ID as string,
-        secretAccessKey: (env as any).R2_S3_SECRET_ACCESS_KEY as string,
-        service: 's3',
-        region: 'auto',
-      });
-      const endpoint = `https://${(env as any).R2_S3_BUCKET}.${(env as any).R2_S3_ACCOUNT_ID}.r2.cloudflarestorage.com/${encodeURIComponent(key)}`;
-      const url = new URL(endpoint);
-      url.searchParams.set('X-Amz-Expires', String(3600));
-      const signed = await client.sign(new Request(url, { method: 'GET' }), { aws: { signQuery: true } });
-      audioUrl = signed.url;
-    } catch {
-      // ignore and continue to next fallback
-    }
-  }
-  // 3) 公共基址直链
-  if (!audioUrl && (env as any).AUDIO_PUBLIC_BASE && /^https?:\/\//i.test((env as any).AUDIO_PUBLIC_BASE as string)) {
-    const base = ((env as any).AUDIO_PUBLIC_BASE as string).replace(/\/$/, "");
-    audioUrl = `${base}/${encodeURIComponent(key)}`;
-  }
-  // 4) 本服务代理
-  if (!audioUrl) {
-    const originOverride = (env as any).PUBLIC_ORIGIN as string | undefined;
-    const origin = originOverride && /^https?:\/\//i.test(originOverride)
-      ? originOverride.replace(/\/$/, "")
-      : new URL(request.url).origin;
-    audioUrl = `${origin}/api/audio/${encodeURIComponent(key)}`;
+  let audioUrl: string;
+  try {
+    const { AwsClient } = await import('aws4fetch');
+    const client = new AwsClient({
+      accessKeyId: (env as any).R2_S3_ACCESS_KEY_ID as string,
+      secretAccessKey: (env as any).R2_S3_SECRET_ACCESS_KEY as string,
+      service: 's3',
+      region: 'auto',
+    });
+    const endpoint = `https://${(env as any).R2_S3_BUCKET}.${(env as any).R2_S3_ACCOUNT_ID}.r2.cloudflarestorage.com/${encodeURIComponent(key)}`;
+    const url = new URL(endpoint);
+    url.searchParams.set('X-Amz-Expires', String(3600));
+    const signed = await client.sign(new Request(url, { method: 'GET' }), { aws: { signQuery: true } });
+    audioUrl = signed.url;
+  } catch (e) {
+    return NextResponse.json(
+      { error: "生成 R2 预签名 URL 失败", detail: (e as Error).message },
+      { status: 500 }
+    );
   }
 
   // Infer audio format
