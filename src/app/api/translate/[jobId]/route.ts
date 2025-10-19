@@ -94,7 +94,8 @@ export async function GET(request: NextRequest, context: { params: Promise<{ job
   if (job.cursor >= job.entries.length) job.completed = true;
   await env.AUDIO_BUCKET.put(jobKey, JSON.stringify(job), { httpMetadata: { contentType: "application/json" } });
 
-  return NextResponse.json({ status: job.completed ? "completed" : "processing", progressed, completed: job.completed, cursor: job.cursor, total: job.total, ...(job.completed ? { srt: rebuildSrt(job.entries) } : {}) });
+  const processed = job.entries.filter((e) => typeof e.dst === 'string' && e.dst.length >= 0).length;
+  return NextResponse.json({ status: job.completed ? "completed" : "processing", progressed, completed: job.completed, cursor: job.cursor, processed, total: job.total, ...(job.completed ? { srt: rebuildSrt(job.entries) } : {}) });
 }
 
 

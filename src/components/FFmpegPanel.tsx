@@ -192,6 +192,8 @@ export default function FFmpegPanel() {
     []
   );
   const [targetLanguage, setTargetLanguage] = useState<string>('zh-CN');
+  const [asrProgress, setAsrProgress] = useState<{ current: number; total: number; etaSec?: number } | null>(null);
+  const [translateProgress, setTranslateProgress] = useState<{ current: number; total: number; etaSec?: number } | null>(null);
 
   const uploadMutation = useMutation<{ key: string }, Error, FormData>({
     mutationFn: async (form) => {
@@ -462,7 +464,15 @@ export default function FFmpegPanel() {
           logStage('asr', `查询失败(${i}/${maxAttempts}): ${res.status}`, 'warn');
           continue;
         }
-        const data = (await res.json()) as { status: 'processing' | 'completed' | 'failed'; srt?: string; message?: string };
+        const data = (await res.json()) as { status: 'processing' | 'completed' | 'failed'; srt?: string; message?: string; cursor?: number; total?: number };
+        if (data.status === 'processing' && typeof data.cursor === 'number' && typeof data.total === 'number') {
+          const current = data.cursor;
+          const total = Math.max(data.total, 1);
+          // 简易 ETA：假设剩余批次数按等比延长
+          const remainBatches = Math.max(total - current, 0);
+          const etaSec = Math.min(600, Math.round((1000 * i) / 1000 * remainBatches));
+          setAsrProgress({ current, total, etaSec });
+        }
         if (data.status === 'processing') {
           logStage('asr', `处理中(${i}/${maxAttempts})…`);
           continue;
@@ -471,6 +481,7 @@ export default function FFmpegPanel() {
           throw new Error(data.message || 'ASR 任务失败');
         }
         if (data.status === 'completed' && data.srt) {
+          setAsrProgress(null);
           srtFromAsr = data.srt;
           break;
         }
@@ -507,12 +518,20 @@ export default function FFmpegPanel() {
         logStage('translate', `查询失败(${i}/${maxTranslateAttempts}): ${q.status}`, 'warn');
         continue;
       }
-      const data = (await q.json()) as { status: 'processing' | 'completed' | 'not_found' | 'error'; srt?: string };
+      const data = (await q.json()) as { status: 'processing' | 'completed' | 'not_found' | 'error'; srt?: string; cursor?: number; processed?: number; total?: number };
       if (data.status === 'processing') {
+        if (typeof data.processed === 'number' && typeof data.total === 'number') {
+          const current = data.processed;
+          const total = Math.max(data.total, 1);
+          const remain = Math.max(total - current, 0);
+          const etaSec = Math.min(900, Math.round((1000 + i * 300) / 1000 * Math.ceil(remain / 10)));
+          setTranslateProgress({ current, total, etaSec });
+        }
         logStage('translate', `处理中(${i}/${maxTranslateAttempts})…`);
         continue;
       }
       if (data.status === 'completed' && data.srt) {
+        setTranslateProgress(null);
         translated = data.srt;
         break;
       }
@@ -667,6 +686,22 @@ export default function FFmpegPanel() {
                         {isActive && <span className="ml-2 animate-pulse text-xs text-blue-300">进行中…</span>}
                         {isCompleted && <span className="ml-2 text-xs text-emerald-300">完成</span>}
                       </p>
+                      {step.key === 'asr' && asrProgress && isActive && (
+                        <div className="mt-2 text-xs">
+                          <div className="h-2 w-56 overflow-hidden rounded bg-white/10">
+                            <div className="h-full bg-blue-500" style={{ width: `${Math.min(100, Math.round((asrProgress.current / asrProgress.total) * 100))}%` }} />
+                          </div>
+                          <div className="mt-1 text-white/60">{asrProgress.current}/{asrProgress.total}{asrProgress.etaSec ? ` · 约剩余 ${asrProgress.etaSec}s` : ''}</div>
+                        </div>
+                      )}
+                      {step.key === 'translate' && translateProgress && isActive && (
+                        <div className="mt-2 text-xs">
+                          <div className="h-2 w-56 overflow-hidden rounded bg-white/10">
+                            <div className="h-full bg-emerald-500" style={{ width: `${Math.min(100, Math.round((translateProgress.current / translateProgress.total) * 100))}%` }} />
+                          </div>
+                          <div className="mt-1 text-white/60">{translateProgress.current}/{translateProgress.total}{translateProgress.etaSec ? ` · 约剩余 ${translateProgress.etaSec}s` : ''}</div>
+                        </div>
+                      )}
                       {step.extra && (
                         <div className="mt-1 space-y-1 text-xs text-white/60">
                           {Object.entries(step.extra).map(([key, value]) => (
