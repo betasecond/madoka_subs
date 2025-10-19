@@ -51,14 +51,17 @@ export async function POST(request: NextRequest) {
   }
 
   const audioBucket = env.AUDIO_BUCKET as SignedUrlBucket;
-  if (typeof audioBucket.createSignedUrl !== "function") {
-    throw new Error("当前 R2 Bucket 不支持生成签名地址");
+  let audioUrl: string;
+  if (typeof audioBucket.createSignedUrl === "function") {
+    audioUrl = await audioBucket.createSignedUrl({
+      key,
+      expiration: 60 * 60, // 1 hour
+    });
+  } else {
+    // 回退到公开可访问的音频地址（由本应用代理到 R2）
+    const origin = new URL(request.url).origin;
+    audioUrl = new URL(`/api/audio/${encodeURIComponent(key)}`, origin).toString();
   }
-
-  const signedUrl = await audioBucket.createSignedUrl({
-    key,
-    expiration: 60 * 60, // 1 hour
-  });
 
   const submitUrl = new URL(
     `${env.ASR_BASE_URL.replace(/\/$/, "")}/${SUBMIT_ENDPOINT}`
@@ -79,7 +82,7 @@ export async function POST(request: NextRequest) {
       Authorization: withBearer(env.ASR_ACCESS_TOKEN),
     },
     body: JSON.stringify({
-      url: signedUrl,
+      url: audioUrl,
     }),
   });
 
