@@ -488,12 +488,40 @@ export default function FFmpegPanel() {
     }
 
     start('translate');
-    const translation = await translateMutation.mutateAsync({
-      srt: currentSrt,
-      targetLanguage,
-      note: translationNote.trim() || undefined,
+    // 提交翻译 Job
+    const submitResp = await fetch('/api/translate/submit', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ srt: currentSrt, targetLanguage, note: translationNote.trim() || undefined }),
     });
-    setTranslatedSrt(translation.srt);
+    if (!submitResp.ok) throw new Error(await submitResp.text());
+    const { jobId: translateJobId } = (await submitResp.json()) as { jobId: string };
+    logStage('translate', `翻译任务已提交，jobId: ${translateJobId}`);
+    // 轮询翻译
+    let translated = '';
+    const maxTranslateAttempts = 60;
+    for (let i = 1; i <= maxTranslateAttempts; i++) {
+      await new Promise((r) => setTimeout(r, Math.min(8000, 1000 + i * 300)));
+      const q = await fetch(`/api/translate/${encodeURIComponent(translateJobId)}`);
+      if (!q.ok) {
+        logStage('translate', `查询失败(${i}/${maxTranslateAttempts}): ${q.status}`, 'warn');
+        continue;
+      }
+      const data = (await q.json()) as { status: 'processing' | 'completed' | 'not_found' | 'error'; srt?: string };
+      if (data.status === 'processing') {
+        logStage('translate', `处理中(${i}/${maxTranslateAttempts})…`);
+        continue;
+      }
+      if (data.status === 'completed' && data.srt) {
+        translated = data.srt;
+        break;
+      }
+      if (data.status === 'not_found' || data.status === 'error') {
+        throw new Error('翻译任务失败或不存在');
+      }
+    }
+    if (!translated) throw new Error('翻译轮询超时');
+    setTranslatedSrt(translated);
     finish('translate');
 
     finish('done');
