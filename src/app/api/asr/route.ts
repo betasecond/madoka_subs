@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+// NOTE: 保留 import 但不再进行后端轮询
 import pRetry, { AbortError } from "p-retry";
 
 const SUBMIT_ENDPOINT = "submit";
@@ -243,63 +244,8 @@ export async function POST(request: NextRequest) {
   // 成功提交也要消费/取消响应体，避免 Cloudflare stalled 警告
   try { await submitResponse.body?.cancel?.(); } catch {}
 
+  // 不再后端轮询，直接返回 jobId 供前端查询新端点 /api/asr/[jobId]
   const jobId = requestId;
-
-  // Query loop per v3 API
-  const queryUrl = `${env.ASR_BASE_URL.replace(/\/$/, "")}/${QUERY_ENDPOINT}`;
-  let attempt = 0;
-  const data = await pRetry(
-    async () => {
-      attempt += 1;
-      const response = await fetch(queryUrl, {
-        method: "POST",
-        headers: buildV3Headers(env as unknown as CloudflareEnv, jobId),
-        body: JSON.stringify({}),
-      });
-
-      if (!response.ok) {
-        throw new AbortError(
-          `ASR 查询失败: ${response.status} ${await response.text()}`
-        );
-      }
-
-      const status = readStatusCode(response.headers);
-      debugInfo.polls.push({
-        attempt,
-        httpStatus: response.status,
-        apiStatus: status,
-        apiMessage: response.headers.get("X-Api-Message") || response.headers.get("x-api-message"),
-      });
-      if (status === 20000000) {
-        const result = (await response.json()) as V3QueryResponse;
-        const utt = result.result?.utterances ?? [];
-        if (utt.length > 0) {
-          return utterancesToSrt(utt);
-        }
-        const text = result.result?.text || "";
-        return [`1`, `${msToSrtTime(0)} --> ${msToSrtTime(2000)}`, text, ""].join("\n");
-      }
-
-      if (status === 20000001 || status === 20000002) {
-        // processing / queued：取消响应体避免堆积
-        try { await response.body?.cancel?.(); } catch {}
-        throw new Error(`ASR 未完成: ${status}`);
-      }
-
-      const msg = response.headers.get("X-Api-Message") || response.headers.get("x-api-message") || "";
-      const errBody = await response.text().catch(() => "");
-      // 失败：也消费响应体
-      try { await response.body?.cancel?.(); } catch {}
-      throw new AbortError(`ASR 任务失败: ${status} ${msg} ${errBody ? `| ${errBody}` : ""}`);
-    },
-    {
-      retries: 10,
-      factor: 1.5,
-      minTimeout: 2000,
-      maxTimeout: 10000,
-    }
-  );
-
-  return NextResponse.json({ srt: data, debug: debugInfo }, { status: 200 });
+  return NextResponse.json({ jobId, debug: debugInfo }, { status: 200 });
 }
 
