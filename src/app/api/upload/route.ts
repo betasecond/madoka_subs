@@ -40,11 +40,11 @@ export async function POST(request: NextRequest) {
   const extension = file.name.split(".").pop() ?? "bin";
   const objectKey = `${crypto.randomUUID()}.${extension}`;
 
-  const arrayBuffer = await file.arrayBuffer();
+  const bodyStream = file.stream();
 
   const env = getEnv({ request });
 
-  await env.AUDIO_BUCKET.put(objectKey, arrayBuffer, {
+  await env.AUDIO_BUCKET.put(objectKey, bodyStream, {
     httpMetadata: { contentType: file.type ?? "application/octet-stream" },
   });
 
