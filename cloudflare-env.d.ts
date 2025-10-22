@@ -11,6 +11,7 @@ declare namespace Cloudflare {
 		ASR_BASE_URL: string;
 		ASR_RESOURCE_ID: string;
 		ASR_MODEL_VERSION: string;
+		SONIOX_API_KEY: string;
 		PUBLIC_ORIGIN?: string;
 		AUDIO_PUBLIC_BASE?: string;
 		R2_S3_ACCOUNT_ID?: string;

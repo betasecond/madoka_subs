@@ -174,6 +174,7 @@ export default function FFmpegPanel() {
     []
   );
   const [asrLanguage, setAsrLanguage] = useState<string>('auto');
+  const [asrVendor, setAsrVendor] = useState<'volc' | 'soniox'>('volc');
   const TRANSLATE_LANGUAGE_OPTIONS = useMemo(
     () => [
       { label: '中文 zh-CN', value: 'zh-CN' },
@@ -210,9 +211,10 @@ export default function FFmpegPanel() {
     },
   });
 
-  const asrSubmitMutation = useMutation<{ jobId: string }, Error, { key: string; language?: string }>({
+  const asrSubmitMutation = useMutation<{ jobId: string }, Error, { key: string; language?: string; vendor?: 'volc' | 'soniox' }>({
     mutationFn: async (input) => {
-      const response = await fetch('/api/asr/submit', {
+      const path = input.vendor === 'soniox' ? '/api/asr/soniox/submit' : '/api/asr/submit';
+      const response = await fetch(path, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(input),
@@ -453,13 +455,15 @@ export default function FFmpegPanel() {
 
       start('asr');
       const selectedLanguageCode = asrLanguage === 'auto' ? undefined : asrLanguage;
-      const { jobId } = await asrSubmitMutation.mutateAsync({ key: uploadResult.key, language: selectedLanguageCode });
+      const vendor = asrVendor;
+      const { jobId } = await asrSubmitMutation.mutateAsync({ key: uploadResult.key, language: selectedLanguageCode, vendor });
       logStage('asr', `任务已提交，jobId: ${jobId}`);
       let srtFromAsr = '';
       const maxAttempts = 30;
       for (let i = 1; i <= maxAttempts; i++) {
         await new Promise((r) => setTimeout(r, Math.min(10000, 1000 * i)));
-        const res = await fetch(`/api/asr/${encodeURIComponent(jobId)}`);
+        const queryPath = vendor === 'soniox' ? `/api/asr/soniox/${encodeURIComponent(jobId)}` : `/api/asr/${encodeURIComponent(jobId)}`;
+        const res = await fetch(queryPath);
         if (!res.ok) {
           logStage('asr', `查询失败(${i}/${maxAttempts}): ${res.status}`, 'warn');
           continue;
@@ -618,6 +622,17 @@ export default function FFmpegPanel() {
                   {ASR_LANGUAGE_OPTIONS.map((opt) => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
                   ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-2 text-sm">
+                <label className="text-white/60">ASR 供应商</label>
+                <select
+                  className="rounded border border-white/20 bg-black/40 px-2 py-1"
+                  value={asrVendor}
+                  onChange={(e) => setAsrVendor(e.target.value as 'volc' | 'soniox')}
+                >
+                  <option value="volc">火山云</option>
+                  <option value="soniox">Soniox</option>
                 </select>
               </div>
               <div className="flex items-center gap-2 text-sm">
